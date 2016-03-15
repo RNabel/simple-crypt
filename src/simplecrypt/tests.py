@@ -235,10 +235,10 @@ class TestPreComputedPassword(TestCase):
         pw = "password"
         data = "data"
         # Calculate cipher.
-        cipher_storage = create_cipher_storage(pw)
+        cs = create_cipher_storage(pw)
 
         # encrypted - pre-computed.
-        encrypted_computed = encrypt(pw, data, True)
+        encrypted_computed = encrypt(pw, data, cs)
 
         self.assertTrue(decrypt(pw, encrypted_computed) == data)
 
@@ -246,29 +246,30 @@ class TestPreComputedPassword(TestCase):
         pw = "password"
         data = "data"
         # Calculate cipher.
-        create_cipher_storage(pw)
+        cs = create_cipher_storage(pw)
+        cs.create_cipher()
 
         # decrypt - pre-computed.
-        encrypted = encrypt(pw, data)
+        encrypted = encrypt(pw, data, cs)
 
-        self.assertTrue(decrypt(pw, encrypted, True) == data)
+        self.assertTrue(decrypt(pw, encrypted, cs) == data)
 
     def test_timing_encrypt(self):
         pw = "password"
         data = "data"
 
-        create_cipher_storage(pw)
+        cs = create_cipher_storage(pw)
 
         curr_time = datetime.datetime.now()
         for i in range(100):
-            encrypt(pw, data, True)
+            encrypt(pw, data, cs)
 
         curr_time = datetime.datetime.now() - curr_time
         print curr_time / 100
         curr_time = datetime.datetime.now()
 
         for i in range(10):
-            encrypt(pw, data)
+            encrypt(pw, data, cs)
 
         curr_time = datetime.datetime.now() - curr_time
         print curr_time / 10

@@ -77,7 +77,7 @@ def decrypt(password, data, cipher_storage=None):
     @param password: The secret value used as the basis for a key.
     This should be as long as varied as possible.  Try to avoid common words.
 
-    @type data: string
+    @type data: bytes
     @param data: The data to be decrypted, typically as bytes.
 
     @type cipher_storage: CipherStorage
