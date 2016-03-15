@@ -13,7 +13,7 @@ import datetime
 
 from simplecrypt import encrypt, decrypt, _expand_keys, DecryptionException, \
     _random_bytes, HEADER, HALF_BLOCK, SALT_LEN, _assert_header_prefix, \
-    _assert_header_version, LATEST, HEADER_LEN, _hide, pre_compute_cipher
+    _assert_header_version, LATEST, HEADER_LEN, _hide, create_cipher_storage
 
 
 class TestEncryption(TestCase):
@@ -188,7 +188,7 @@ class TestRandBytes(TestCase):
             for i in range(l):
                 mean = sum[i] / (127.5 * n)
                 assert abs(mean - 1) < 3.3 / sqrt(n), "length %d sum %d for %d samples, norm to %f" % (
-                l, sum[i], n, mean)
+                    l, sum[i], n, mean)
 
     def test_hide_bits(self):
         # this fails about 1 in 256 times per test (at size 1 byte)
@@ -235,7 +235,7 @@ class TestPreComputedPassword(TestCase):
         pw = "password"
         data = "data"
         # Calculate cipher.
-        pre_compute_cipher(pw)
+        cipher_storage = create_cipher_storage(pw)
 
         # encrypted - pre-computed.
         encrypted_computed = encrypt(pw, data, True)
@@ -246,7 +246,7 @@ class TestPreComputedPassword(TestCase):
         pw = "password"
         data = "data"
         # Calculate cipher.
-        pre_compute_cipher(pw)
+        create_cipher_storage(pw)
 
         # decrypt - pre-computed.
         encrypted = encrypt(pw, data)
@@ -257,7 +257,7 @@ class TestPreComputedPassword(TestCase):
         pw = "password"
         data = "data"
 
-        pre_compute_cipher(pw)
+        create_cipher_storage(pw)
 
         curr_time = datetime.datetime.now()
         for i in range(100):
@@ -275,6 +275,51 @@ class TestPreComputedPassword(TestCase):
 
     def test_timing_decrypt(self):
         pass  # TODO finish this.
+
+
+class TestCipherStorage(TestCase):
+    def test_top_cipher_fails(self):
+        cs = create_cipher_storage("h")
+        try:
+            cs.get_top_cipher()
+            self.fail("No exception raised.")
+        except Exception:
+            pass
+
+    def test_top_cipher_new_salt(self):
+        cs = create_cipher_storage("pw")
+        _salt = bytes(_random_bytes(SALT_LEN[LATEST] // 8))
+        curr_time = datetime.datetime.now()
+        cs.get_cipher(_salt)
+        time_diff_1 = datetime.datetime.now() - curr_time
+
+        curr_time = datetime.datetime.now()
+        cs.get_cipher(_salt)
+        time_diff_2 = datetime.datetime.now() - curr_time
+        print time_diff_1
+        print time_diff_2
+
+        self.assertTrue(time_diff_1 > time_diff_2 * 100, "Second access too slow.")
+
+    def test_cipher_creation(self):
+        cs = create_cipher_storage("pw")
+
+        # Test that getting tope cipher fails.
+        try:
+            cs.get_top_cipher()
+            self.fail("Getting top cipher should fail as empty.")
+        except Exception:
+            pass
+
+        cs.create_cipher()
+
+        try:
+            _salt, _hmac, _cipher_key =cs.get_top_cipher()
+            self.assertTrue(_salt and _hmac and _cipher_key)
+
+        except Exception:
+            self.fail("Should return the new cipher.")
+
 try:
 
     unicode()  # succeeds in 2.7

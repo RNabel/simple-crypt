@@ -25,33 +25,30 @@ HEADER_LEN = 4
 for header in HEADER:
     assert len(header) == HEADER_LEN
 
-# --- Key stretching data. ---
-salt = None
-hmac_key = None
-cipher_key = None
 
-
-def encrypt(password, data, usePreComputed=False):
+def encrypt(password, data, cipher_storage=None):
     """
     Encrypt some data.  Input can be bytes or a string (which will be encoded
     using UTF-8).
 
+    @type password: string
     @param password: The secret value used as the basis for a key.
     This should be as long as varied as possible.  Try to avoid common words.
 
+    @type data: string
     @param data: The data to be encrypted.
 
-    @param useSavedKey: Flag whether to use the pre-computed key.
+    @type cipher_storage: CipherStorage
+    @param cipher_storage: Object which contains pre-computed ciphers.
 
+    @rtype: string
     @return: The encrypted data, as bytes.
     """
     data = _str_to_bytes(data)  # Convert to bytes.
     _assert_encrypt_length(data)  # Ensure data is of correct length.
 
-    if usePreComputed and salt:
-        _salt = salt
-        _hmac_key = hmac_key
-        _cipher_key = cipher_key
+    if cipher_storage:
+        _salt, _hmac_key, _cipher_key = cipher_storage.get_top_cipher()
 
     else:
         _salt = bytes(_random_bytes(SALT_LEN[LATEST] // 8))  # Create a random salt.
@@ -72,15 +69,21 @@ def encrypt(password, data, usePreComputed=False):
     return HEADER[LATEST] + _salt + encrypted + hmac
 
 
-def decrypt(password, data, usePreComputed=False):
+def decrypt(password, data, cipher_storage=None):
     """
     Decrypt some data.  Input must be bytes.
 
+    @type password: string
     @param password: The secret value used as the basis for a key.
     This should be as long as varied as possible.  Try to avoid common words.
 
+    @type data: string
     @param data: The data to be decrypted, typically as bytes.
 
+    @type cipher_storage: CipherStorage
+    @param cipher_storage: The storage element containing all salt to key matches.
+
+    @rtype: string
     @return: The decrypted data, as bytes.  If the original message was a
     string you can re-create that using `result.decode('utf8')`.
     """
@@ -90,11 +93,10 @@ def decrypt(password, data, usePreComputed=False):
     _assert_decrypt_length(data, version)
     raw = data[HEADER_LEN:]
 
-    _salt = raw[:SALT_LEN[version] // 8]  # TODO check whether salt matches.
+    _salt = raw[:SALT_LEN[version] // 8]
 
-    if usePreComputed and _salt == salt:
-        _hmac_key = hmac_key
-        _cipher_key = cipher_key
+    if cipher_storage:
+        _hmac_key, _cipher_key = cipher_storage.get_cipher(_salt)
 
     else:
         _hmac_key, _cipher_key = _expand_keys(password, _salt, EXPANSION_COUNT[version])
@@ -105,13 +107,6 @@ def decrypt(password, data, usePreComputed=False):
     counter = Counter.new(HALF_BLOCK, prefix=_salt[:HALF_BLOCK // 8])
     cipher = AES.new(_cipher_key, AES.MODE_CTR, counter=counter)
     return cipher.decrypt(raw[SALT_LEN[version] // 8:-HASH.digest_size])
-
-
-def pre_compute_cipher(password):
-    global salt, cipher_key, hmac_key
-
-    salt = bytes(_random_bytes(SALT_LEN[LATEST] // 8))  # Create a random salt.
-    hmac_key, cipher_key = _expand_keys(password, salt, EXPANSION_COUNT[LATEST])  # Generate cipher_key and HMAC key.
 
 
 class DecryptionException(Exception):
@@ -198,3 +193,47 @@ def _str_to_bytes(data):
     if isinstance(data, u_type):
         return data.encode('utf8')
     return data
+
+
+class CipherStorage:
+    salt_to_cipher_dict = {}  # salt -> (hmac_key, cipher_key)
+
+    def __init__(self, password):
+        self.password = password
+
+    def get_cipher(self, _salt):
+        if _salt not in self.salt_to_cipher_dict:
+            self._compute_cipher(_salt)
+
+        return self.salt_to_cipher_dict[_salt]
+
+    def _compute_cipher(self, _salt):
+        """
+        Computes and caches the cipher.
+        @param _salt: {string}
+        @return: None
+        """
+        self.salt_to_cipher_dict[_salt] = _expand_keys(self.password, _salt,
+                                                       EXPANSION_COUNT[LATEST])  # Generate cipher_key and HMAC key.
+
+    def get_top_cipher(self):
+        if len(self.salt_to_cipher_dict):
+            random_salt = self.salt_to_cipher_dict.iterkeys().next()
+            hmac_key, cipher_key = self.salt_to_cipher_dict[random_salt]
+            return random_salt, hmac_key, cipher_key
+
+        else:
+            # Intended failure.
+            #   Alternative would have been to create a cipher if none present.
+            #   This could have led to numerous ciphers being created on-the-fly and
+            #   thus slowing down the encryption mechanism. Forcing a different call to create a new ciphers provides
+            #   finer control.
+            raise Exception("No ciphers in storage to use.")
+
+    def create_cipher(self):
+        _salt = bytes(_random_bytes(SALT_LEN[LATEST] // 8))
+        self._compute_cipher(_salt)
+
+
+def create_cipher_storage(password):
+    return CipherStorage(password)
